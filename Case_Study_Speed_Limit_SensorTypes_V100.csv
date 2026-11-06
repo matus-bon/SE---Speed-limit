@@ -1,0 +1,10 @@
+SensorTypeCode;Type;Unit;Min;Max
+AP;air pressure;mmHG;900;1000
+T;temperature;degrees Celsius;-30;70
+H;humidity;percent;0;100
+N;noise;decibel;60;120
+T;traffic;cars/second;0;50
+WS;wind strength;hm/h;0;300
+WD;wind direction;degrees   ;0;360
+W ;water;micrometer;0;10000
+L;light;lux;0;1000000

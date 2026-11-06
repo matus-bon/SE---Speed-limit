@@ -1,0 +1,38 @@
+Data source: C:\SKOLA\IMC Krems an der Donau\1. Semester\Software Engineering for AI - SEA1VO\SL\ORIGINAL
+Sensor groups used: {'water': [1, 8, 11], 'light': [2, 9, 12], 'temp': [15, 18, 19], 'wind': [6, 14], 'humidity': [4], 'noise': [3], 'traffic': [16]}
+
+======================================================================
+YEAR N
+======================================================================
+Readings: 12648 rows, 12648 after removing empty and duplicate rows
+Missing values in the hourly table before imputation: {'water': 0, 'light': 0, 'temp': 0, 'wind': 0, 'humidity': 0, 'noise': 0, 'traffic': 0, 'limit': 0}
+-> after imputation (linear interpolation in time): 0
+Accidents: 997 rows, of which completely empty (no Damage/Injured/Close*/Skid): 1 -> removed
+Near-accidents according to SPEC4: 964, real accidents without a near-accident (only Damage/Injured): 32
+Near-accidents that could not be assigned to a reading hour: 0
+Dark hours (light < 500): 354, (light < 0.5): 354  -> if the numbers are equal, it does not matter whether the unit is lux or millilux
+Hours with ice risk: 62
+Mean near-accidents per hour: 1.296, variance: 1.293
+
+======================================================================
+YEAR N+1
+======================================================================
+Readings: 12648 rows, 12648 after removing empty and duplicate rows
+Missing values in the hourly table before imputation: {'water': 0, 'light': 0, 'temp': 0, 'wind': 0, 'humidity': 0, 'noise': 0, 'traffic': 0, 'limit': 0}
+-> after imputation (linear interpolation in time): 0
+Accidents: 844 rows, of which completely empty (no Damage/Injured/Close*/Skid): 1 -> removed
+Near-accidents according to SPEC4: 822, real accidents without a near-accident (only Damage/Injured): 21
+Near-accidents that could not be assigned to a reading hour: 0
+Dark hours (light < 500): 354, (light < 0.5): 354  -> if the numbers are equal, it does not matter whether the unit is lux or millilux
+Hours with ice risk: 62
+Mean near-accidents per hour: 1.105, variance: 1.028
+
+Saved: hourly_dataset_N.csv (744 rows), hourly_dataset_Nplus1.csv (744 rows)
+
+First 5 rows of year N:
+ day  hour  water  light  temp  wind  humidity  noise  traffic  limit  near_accidents
+   1     0    0.0   0.10  0.55   1.0     73.93  83.96     3.00   70.0               1
+   1     1    0.0   0.17 -2.98  46.5     82.03  81.93     2.32   60.0               2
+   1     2    0.0   0.13 -3.53   0.0     73.19  81.98     2.12   70.0               0
+   1     3    0.0   0.18 -3.37   3.5     85.24  83.90     2.51   60.0               2
+   1     4    0.0   0.20 -4.67  35.0     85.00  84.83     3.79   50.0               2

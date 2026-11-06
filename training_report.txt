@@ -1,0 +1,25 @@
+Dataset of year N: 744 hours, inputs: ['limit', 'log_water', 'log_light', 'temp', 'wind', 'humidity', 'noise', 'traffic']
+
+--- EVALUATION ---
+Test (25 % of year N)              MSE network: 1.403 | MSE 'always the mean': 1.276 | MAE: 0.986
+Training (75 % of year N)          MSE network: 1.330 | MSE 'always the mean': 1.297 | MAE: 0.927
+Year N+1 (new, unseen data)        MSE network: 1.131 | MSE 'always the mean': 1.069 | MAE: 0.880
+
+Hours where the router passes the decision to the network (dark or ice risk): 389 of 744
+Only 'bad' hours (year N)          MSE network: 1.355 | MSE 'always the mean': 1.277 | MAE: 0.933
+
+--- WHAT THIS MEANS ---
+The network is NOT clearly better than the simple mean. The number of near-accidents per hour cannot be
+reliably predicted from the sensors in this data (the variance of the counts is almost equal to their mean = looks like random noise).
+This belongs in the presentation as a finding (lessons learned) and as input for the analysis: more / better data is needed, retraining.
+
+Model saved: speedlimit_model.joblib
+
+--- DEMO: speed limit decision (light, water, temperature -> limit) ---
+day, dry, +10 C                    -> 80 km/h
+night, dry, +5 C                   -> 40 km/h   predictions per limit: {80: 1.025, 70: 1.017, 60: 1.272, 50: 1.719, 40: 2.253}   (NO limit satisfies REQ1 -> fallback 40)
+day, wet, +5 C                     -> 80 km/h
+day, wet, frost (ice risk)         -> 80 km/h   predictions per limit: {80: 0.687, 70: 0.647, 60: 0.826, 50: 1.044, 40: 1.419}
+night, wet, frost                  -> 80 km/h   predictions per limit: {80: 0.819, 70: 0.781, 60: 0.836, 50: 0.968, 40: 1.243}
+darkness boundary: light 499       -> 40 km/h   predictions per limit: {80: 1.263, 70: 1.239, 60: 1.593, 50: 1.982, 40: 2.517}   (NO limit satisfies REQ1 -> fallback 40)
+darkness boundary: light 500       -> 80 km/h
