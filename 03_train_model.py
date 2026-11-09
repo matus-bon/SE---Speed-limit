@@ -6,7 +6,7 @@ Output:  speedlimit_model.joblib, training_report.txt
 
 The neural network predicts the NUMBER OF NEAR-ACCIDENTS PER HOUR from
 (limit, water, light, temperature, wind, humidity, noise, traffic).
-The limit is then chosen as the highest of 80, 70, 60, 50, 40 for which the prediction does not exceed 1 (REQ1).
+The limit is then chosen as the highest of 70, 60, 50, 40 for which the prediction does not exceed 1 (REQ1).
 """
 import os, io, sys, warnings
 import numpy as np

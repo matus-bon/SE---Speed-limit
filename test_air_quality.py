@@ -1,0 +1,70 @@
+"""
+Speed Limit - air quality component tests (exercise SpeedLimit10c).
+
+Usage:  python test_air_quality.py
+
+Part 1 needs nothing else running. Part 2 needs LM Studio's local server with Qwen 3.5 9B loaded.
+The LLM makes a judgment, so only clear cases have a golden answer; borderline cases only have to be valid.
+"""
+import sys
+
+from air_quality import ALLOWED_REDUCTIONS, ask_llm, aqi_category, decide_reduction
+from speedlimit_core import combine_limits
+
+failed = 0
+
+
+def check(test_id, description, actual, expected):
+    global failed
+    ok = actual in expected if isinstance(expected, (set, tuple)) else actual == expected
+    failed += not ok
+    shown = "/".join(map(str, sorted(expected))) if isinstance(expected, (set, tuple)) else expected
+    print(f"{test_id:4s} {description:48s} expected {str(shown):14s} actual {str(actual):14s} {'PASS' if ok else 'FAIL'}")
+
+
+def offline(_air):
+    raise ConnectionError("server off")
+
+
+def air(aqi, pm2_5=10, pm10=10, no2=10, o3=10):
+    return dict(aqi=aqi, pm2_5=pm2_5, pm10=pm10, no2=no2, o3=o3)
+
+
+print("PART 1: guardrails and combination (no LLM needed)\n")
+check("G1", "invalid answer 'banana', AQI 90 -> rule", decide_reduction(air(90), lambda a: "banana")["reduction"], 20)
+check("G2", "value not allowed '15', AQI 10 -> rule", decide_reduction(air(10), lambda a: "15")["reduction"], 0)
+check("G3", "LLM server off, AQI 120 -> rule", decide_reduction(air(120), offline)["reduction"], 30)
+check("G4", "server off is reported as fallback", decide_reduction(air(120), offline)["source"], "fallback rule")
+check("G5", "valid answer '10' is used", decide_reduction(air(70), lambda a: "10\n")["source"], "llm")
+check("C1", "weather 80, air -0 -> 80 (REQ3)", combine_limits(80, 0), 80)
+check("C2", "weather 80, air -20 -> 60 (REQ2)", combine_limits(80, 20), 60)
+check("C3", "weather 50, air -10 -> stricter weather 50", combine_limits(50, 10), 50)
+check("C4", "weather 60, air -30 -> stricter air 50", combine_limits(60, 30), 50)
+
+print("\n\nPART 2: live LLM\n")
+try:
+    ask_llm(air(10))
+except Exception:
+    print("NOT RUN: LM Studio server is not reachable.")
+else:
+    NO_REDUCTION = {0}
+    CLEAR_REDUCTION = {20, 30}
+    CASES = [
+        ("L1", "very clean", air(12, 4, 8, 8, 40), NO_REDUCTION),
+        ("L2", "clean", air(25, 8, 14, 25, 55), NO_REDUCTION),
+        ("L3", "fair", air(36, 14, 25, 35, 70), NO_REDUCTION),
+        ("L4", "very poor", air(92, 60, 120, 200, 150), CLEAR_REDUCTION),
+        ("L5", "extremely poor", air(130, 110, 210, 300, 100), CLEAR_REDUCTION),
+        ("L6", "severe smog", air(250, 250, 400, 420, 60), CLEAR_REDUCTION),
+        ("N1", "moderate", air(55, 22, 45, 70, 110), set(ALLOWED_REDUCTIONS)),
+        ("N2", "poor, all pollutants raised", air(72, 38, 70, 100, 120), set(ALLOWED_REDUCTIONS)),
+        ("N3", "poor, NO2 driven", air(75, 15, 30, 190, 40), set(ALLOWED_REDUCTIONS)),
+        ("N4", "poor, ozone driven", air(70, 10, 20, 30, 190), set(ALLOWED_REDUCTIONS)),
+    ]
+    for test_id, name, values, expected in CASES:
+        result = decide_reduction(values)
+        ok_source = result["source"] == "llm"
+        check(test_id, f"{name} (AQI {values['aqi']}, {aqi_category(values['aqi'])})", result["reduction"] if ok_source else "fallback", expected)
+
+print(f"\nFailed tests: {failed}")
+sys.exit(1 if failed else 0)

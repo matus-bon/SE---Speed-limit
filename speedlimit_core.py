@@ -5,8 +5,8 @@ Contains:
   * constants from the specification (SPEC1, SPEC2, speed limits),
   * make_features()      - turns the hourly table into the neural network inputs,
   * is_dark(), is_ice_risk(), router_uses_nn()  - the ROUTER (Software 1.0, no AI),
-  * choose_limit()       - picks the speed limit with the neural network (Software 2.0),
-  * final_speed_limit()  - the complete decision according to REQ1 and REQ3.
+  * choose_limit()       - picks the reduced speed limit with the neural network (Software 2.0),
+  * final_speed_limit()  - the complete weather decision according to REQ1 and REQ3.
 """
 import numpy as np
 import pandas as pd
@@ -16,7 +16,9 @@ DARK_BELOW = 500          # SPEC1: dark = light below 500 (millilux; the data gi
 ICE_WATER_ABOVE = 1000    # SPEC2: more than 1000 micrometers of water ...
 ICE_TEMP_BELOW = 0        # ... and temperature below zero
 DEFAULT_LIMIT = 80        # REQ3: used when there is no reason to reduce the limit
-LIMITS_TO_TRY = [80, 70, 60, 50, 40]   # from the highest (most permissive) to the lowest
+# REQ1 requires a reduction. 80 km/h is also excluded because the operator always reduced the limit
+# in dark or icy hours, so the data contains no such hours at 80 km/h and the network cannot judge it.
+LIMITS_TO_TRY = [70, 60, 50, 40]       # from the highest (most permissive) to the lowest
 MAX_NEAR_ACCIDENTS_PER_HOUR = 1.0      # REQ1: on average at most one near-accident per hour
 
 FEATURES = ["limit", "log_water", "log_light", "temp", "wind", "humidity", "noise", "traffic"]
@@ -53,7 +55,7 @@ def router_uses_nn(light, water, temp) -> bool:
 
 # ---- Limit selection (Software 2.0 plus the code wrapped around it) ------------
 def choose_limit(model, conditions: dict):
-    """Picks the HIGHEST limit of 80, 70, ..., 40 for which the network predicts at most 1 near-accident per hour.
+    """Picks the HIGHEST limit of 70, 60, 50, 40 for which the network predicts at most 1 near-accident per hour.
     conditions: dict with the keys water, light, temp, wind, humidity, noise, traffic.
     Returns (limit, predictions_for_every_limit, safe_limit_found: bool).
     If no limit satisfies REQ1, returns the lowest one (40) and False - a safety fallback (guardrail)."""
@@ -72,3 +74,8 @@ def final_speed_limit(model, light, water, temp, wind=0.0, humidity=80.0, noise=
         return DEFAULT_LIMIT, {}, True
     cond = dict(water=water, light=light, temp=temp, wind=wind, humidity=humidity, noise=noise, traffic=traffic)
     return choose_limit(model, cond)
+
+
+def combine_limits(weather_limit, air_reduction):
+    """REQ2: the stricter of the weather limit and the air quality limit applies."""
+    return min(weather_limit, DEFAULT_LIMIT - air_reduction)
