@@ -3,13 +3,18 @@ Speed Limit - air quality component tests (exercise SpeedLimit10c).
 
 Usage:  python test_air_quality.py
 
-Part 1 needs nothing else running. Part 2 needs LM Studio's local server with Qwen 3.5 9B loaded.
+Part 1 needs nothing else running (it includes the Open-Meteo outage tests with a fake service and a fake clock). Part 2 needs LM Studio's local server with Qwen 3.5 9B loaded.
 The LLM makes a judgment, so only clear cases have a golden answer; borderline cases only have to be valid.
 """
 import sys
+from pathlib import Path
 
-from air_quality import ALLOWED_REDUCTIONS, ask_llm, aqi_category, decide_reduction
-from speedlimit_core import combine_limits
+import joblib
+import pandas as pd
+
+import air_quality
+from air_quality import ALLOWED_REDUCTIONS, ask_llm, aqi_category, decide_reduction, forecast_with_fallback, full_decision
+from speedlimit_core import combine_limits, training_ranges
 
 failed = 0
 
@@ -40,6 +45,49 @@ check("C1", "weather 80, air -0 -> 80 (REQ3)", combine_limits(80, 0), 80)
 check("C2", "weather 80, air -20 -> 60 (REQ2)", combine_limits(80, 20), 60)
 check("C3", "weather 50, air -10 -> stricter weather 50", combine_limits(50, 10), 50)
 check("C4", "weather 60, air -30 -> stricter air 50", combine_limits(60, 30), 50)
+
+
+# ---- outage of Open-Meteo (fallback option A: last known forecast up to 3 hours, otherwise no reduction + alert)
+def down(*_):
+    raise ConnectionError("Open-Meteo is down")
+
+
+class Clock:
+    def __init__(self):
+        self.t = 1_000_000.0
+
+    def __call__(self):
+        return self.t
+
+
+model = joblib.load(Path(__file__).with_name("speedlimit_model.joblib"))
+KNOWN = air(70)
+air_quality._last_forecast.clear()
+clock = Clock()
+live = forecast_with_fallback(fetch=lambda lat, lon: KNOWN, now=clock)
+check("F1", "service works -> live forecast, no alert", [live["source"], live["alert"] is None], ["live", True])
+clock.t += 3600
+stored = forecast_with_fallback(fetch=down, now=clock)
+check("F2", "down after 1 h -> last known forecast + alert", [stored["source"], stored["air"] == KNOWN, stored["alert"] is not None], ["stored", True, True])
+clock.t += 4 * 3600
+old = forecast_with_fallback(fetch=down, now=clock)
+check("F3", "down, stored forecast 5 h old -> no forecast", [old["source"], old["air"]], ["none", None])
+air_quality._last_forecast.clear()
+nothing = forecast_with_fallback(fetch=down, now=clock)
+check("F4", "down, nothing stored -> no forecast + alert", [nothing["source"], nothing["alert"] is not None], ["none", True])
+calls = []
+air_quality._last_forecast.clear()
+forecast_with_fallback(fetch=lambda lat, lon: calls.append(1) or KNOWN, now=clock)
+clock.t += 300
+forecast_with_fallback(fetch=lambda lat, lon: calls.append(1) or KNOWN, now=clock)
+check("F5", "second call within 10 minutes -> one request only", len(calls), 1)
+r = full_decision(model, 50000, 0, 10, None)
+check("F6", "no air data, good weather -> 80 km/h, reduction 0", [r["limit"], r["reduction"], r["source"], bool(r["alerts"])], [80, 0, "no air data", True])
+r = full_decision(model, 0, 0, 5, None)
+check("F7", "no air data, dark -> the weather limit only", r["limit"], r["weather_limit"])
+ranges = training_ranges(pd.read_csv(Path(__file__).with_name("hourly_dataset_N.csv")))
+r = full_decision(model, 50000, 10000, -1, air(20), ranges=ranges)
+check("F8", "water 10000 um (outside training data) -> alert", [r["limit"] <= 70, any("water" in a for a in r["alerts"])], [True, True])
 
 print("\n\nPART 2: live LLM\n")
 try:

@@ -53,6 +53,30 @@ def router_uses_nn(light, water, temp) -> bool:
     return is_dark(light) or is_ice_risk(water, temp)
 
 
+# ---- Input range check (human in the loop) ------------------------------------
+RANGE_INPUTS = {"water": "water on the road (µm)", "light": "light", "temp": "temperature (°C)"}
+
+
+def training_ranges(df: pd.DataFrame) -> dict:
+    """Smallest and largest value of each checked input in the training data: {name: (min, max)}."""
+    return {name: (float(df[name].min()), float(df[name].max())) for name in RANGE_INPUTS}
+
+
+def range_alerts(ranges: dict, light, water, temp) -> list:
+    """Alert texts for inputs outside the range the network was trained on (it would extrapolate, so its answer is unreliable).
+    Only checked when the network decides (dark or ice risk); otherwise the network is not used."""
+    if not router_uses_nn(light, water, temp):
+        return []
+    values = {"water": water, "light": light, "temp": temp}
+    alerts = []
+    for name, label in RANGE_INPUTS.items():
+        low, high = ranges[name]
+        if not low <= values[name] <= high:
+            alerts.append(f"{label} = {values[name]:g} is outside the training data ({low:g} to {high:g}): "
+                          f"the network has to extrapolate and its prediction is unreliable.")
+    return alerts
+
+
 # ---- Limit selection (Software 2.0 plus the code wrapped around it) ------------
 def choose_limit(model, conditions: dict):
     """Picks the HIGHEST limit of 70, 60, 50, 40 for which the network predicts at most 1 near-accident per hour.

@@ -7,10 +7,11 @@ Air quality reductions come from the local LLM if LM Studio is running, otherwis
 from pathlib import Path
 
 import joblib
+import pandas as pd
 import streamlit as st
 
-from air_quality import aqi_category, ask_llm, fetch_forecast, full_decision
-from speedlimit_core import is_dark, is_ice_risk
+from air_quality import aqi_category, ask_llm, forecast_with_fallback, full_decision
+from speedlimit_core import is_dark, is_ice_risk, training_ranges
 
 
 @st.cache_resource
@@ -18,9 +19,10 @@ def load_model():
     return joblib.load(Path(__file__).with_name("speedlimit_model.joblib"))
 
 
-@st.cache_data(ttl=600)
-def live_air():
-    return fetch_forecast()
+@st.cache_data
+def load_ranges():
+    """Range of the training data (for the input range check)."""
+    return training_ranges(pd.read_csv(Path(__file__).with_name("hourly_dataset_N.csv")))
 
 
 @st.cache_data(show_spinner="Asking the local LLM...")
@@ -42,10 +44,10 @@ st.subheader("Air quality")
 source = st.radio("Source", ["Live forecast for Krems (Open-Meteo)", "Manual values"], horizontal=True)
 air = None
 if source.startswith("Live"):
-    try:
-        air = live_air()
-    except Exception:
-        st.warning("The forecast is unavailable. Choose \"Manual values\".")
+    forecast = forecast_with_fallback()      # live, or the last known forecast, or nothing (see air_quality.py)
+    air = forecast["air"]
+    if forecast["source"] == "stored":       # without any forecast the alert comes from the decision below
+        st.warning("Dispatcher alert: " + forecast["alert"])
 else:
     cols = st.columns(5)
     air = {
@@ -56,23 +58,25 @@ else:
         "o3": cols[4].number_input("Ozone (µg/m³)", min_value=0, max_value=1000, value=150),
     }
 
-if air is None:
-    st.stop()
-
-result = full_decision(load_model(), light, water, temp, air, llm=lambda a: cached_llm(**a))
+result = full_decision(load_model(), light, water, temp, air, llm=lambda a: cached_llm(**a), ranges=load_ranges())
 
 st.divider()
 st.metric("Speed limit", f"{result['limit']} km/h")
 
 reasons = [name for name, active in [("dark", is_dark(light)), ("ice risk", is_ice_risk(water, temp))] if active]
 if reasons:
-    note = "" if result["safe_limit_found"] else " No limit met the target of 1 near-accident per hour, so the 40 km/h fallback applies."
-    st.write(f"**Weather:** {' and '.join(reasons)}, so the neural network chose {result['weather_limit']} km/h.{note}")
+    st.write(f"**Weather:** {' and '.join(reasons)}, so the neural network chose {result['weather_limit']} km/h.")
     st.caption("Predicted near-accidents per hour for each limit")
     st.table({"Limit (km/h)": list(result["predictions"]), "Predicted": list(result["predictions"].values())})
 else:
     st.write("**Weather:** no reason to reduce, 80 km/h.")
 
-decided_by = "local LLM" if result["source"] == "llm" else "fallback rule (LLM unavailable or invalid answer)"
-st.write(f"**Air quality:** AQI {air['aqi']} ({aqi_category(air['aqi'])}), PM2.5 {air['pm2_5']}, PM10 {air['pm10']}, "
-         f"NO₂ {air['no2']}, ozone {air['o3']} µg/m³. Reduction {result['reduction']} km/h, decided by the {decided_by}.")
+if air is None:
+    st.write("**Air quality:** no forecast available, so no reduction is applied.")
+else:
+    decided_by = "local LLM" if result["source"] == "llm" else "fallback rule (LLM unavailable or invalid answer)"
+    st.write(f"**Air quality:** AQI {air['aqi']} ({aqi_category(air['aqi'])}), PM2.5 {air['pm2_5']}, PM10 {air['pm10']}, "
+             f"NO₂ {air['no2']}, ozone {air['o3']} µg/m³. Reduction {result['reduction']} km/h, decided by the {decided_by}.")
+
+for alert in result["alerts"]:
+    st.warning("Dispatcher alert: " + alert)

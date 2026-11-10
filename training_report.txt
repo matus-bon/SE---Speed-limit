@@ -17,9 +17,9 @@ Model saved: speedlimit_model.joblib
 
 --- DEMO: speed limit decision (light, water, temperature -> limit) ---
 day, dry, +10 C                    -> 80 km/h
-night, dry, +5 C                   -> 40 km/h   predictions per limit: {80: 1.025, 70: 1.017, 60: 1.272, 50: 1.719, 40: 2.253}   (NO limit satisfies REQ1 -> fallback 40)
+night, dry, +5 C                   -> 40 km/h   predictions per limit: {70: 1.017, 60: 1.272, 50: 1.719, 40: 2.253}   (NO limit satisfies REQ1 -> fallback 40)
 day, wet, +5 C                     -> 80 km/h
-day, wet, frost (ice risk)         -> 80 km/h   predictions per limit: {80: 0.687, 70: 0.647, 60: 0.826, 50: 1.044, 40: 1.419}
-night, wet, frost                  -> 80 km/h   predictions per limit: {80: 0.819, 70: 0.781, 60: 0.836, 50: 0.968, 40: 1.243}
-darkness boundary: light 499       -> 40 km/h   predictions per limit: {80: 1.263, 70: 1.239, 60: 1.593, 50: 1.982, 40: 2.517}   (NO limit satisfies REQ1 -> fallback 40)
+day, wet, frost (ice risk)         -> 70 km/h   predictions per limit: {70: 0.647, 60: 0.826, 50: 1.044, 40: 1.419}
+night, wet, frost                  -> 70 km/h   predictions per limit: {70: 0.781, 60: 0.836, 50: 0.968, 40: 1.243}
+darkness boundary: light 499       -> 40 km/h   predictions per limit: {70: 1.239, 60: 1.593, 50: 1.982, 40: 2.517}   (NO limit satisfies REQ1 -> fallback 40)
 darkness boundary: light 500       -> 80 km/h

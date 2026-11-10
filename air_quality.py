@@ -9,10 +9,11 @@ The LLM may only answer 0, 10, 20 or 30. If it is not reachable or answers anyth
 rule_reduction() decides instead, so the system always returns a valid value.
 """
 import re
+import time
 
 import requests
 
-from speedlimit_core import combine_limits, final_speed_limit
+from speedlimit_core import combine_limits, final_speed_limit, range_alerts
 
 KREMS = (48.41, 15.60)
 FORECAST_HOURS = 3      # REQ2 speaks of *predicted* air quality: we take the worst of the next hours
@@ -22,6 +23,10 @@ OPEN_METEO_FIELDS = {"aqi": "european_aqi", "pm2_5": "pm2_5", "pm10": "pm10", "n
 LLM_URL = "http://localhost:1234/v1/completions"
 LLM_MODEL = "qwen/qwen3.5-9b"
 ALLOWED_REDUCTIONS = (0, 10, 20, 30)
+
+MAX_FORECAST_AGE_HOURS = 3    # if Open-Meteo is down, a stored forecast younger than this is still used
+FRESH_SECONDS = 600           # a forecast downloaded less than 10 minutes ago is reused (no new request)
+_last_forecast = {}           # (lat, lon) -> (time of download in seconds, forecast)
 
 PROMPT = """You advise a highway operator. Speed limits can be lowered to reduce traffic emissions when air pollution is expected.
 The normal limit is 80 km/h. Use your own knowledge of air pollution and its health effects.
@@ -55,6 +60,33 @@ def fetch_forecast(lat=KREMS[0], lon=KREMS[1], hours=FORECAST_HOURS, timeout=10)
             raise ValueError(f"Open-Meteo returned no values for {field}")
         air[key] = max(values)
     return air
+
+
+def forecast_with_fallback(lat=KREMS[0], lon=KREMS[1], fetch=fetch_forecast, now=time.time):
+    """Open-Meteo forecast that survives an outage of the service (fallback option A).
+
+    1. The service works            -> live forecast (and it is stored).
+    2. The service is down          -> the last stored forecast, if it is at most 3 hours old.
+    3. Down and nothing recent      -> no forecast (air = None): no air quality reduction is applied.
+    Cases 2 and 3 return an alert text for the dispatcher.
+    Returns {"air": forecast or None, "source": "live" | "stored" | "none", "age_hours": number or None, "alert": text or None}."""
+    key = (lat, lon)
+    t = now()
+    stored = _last_forecast.get(key)
+    if stored and t - stored[0] < FRESH_SECONDS:
+        return {"air": stored[1], "source": "live", "age_hours": 0.0, "alert": None}
+    try:
+        air = fetch(lat, lon)
+    except Exception as error:
+        reason = f"Open-Meteo unavailable ({type(error).__name__})"
+        if stored and t - stored[0] <= MAX_FORECAST_AGE_HOURS * 3600:
+            age = (t - stored[0]) / 3600
+            return {"air": stored[1], "source": "stored", "age_hours": round(age, 1),
+                    "alert": f"{reason}: using the last known forecast from {age:.1f} h ago."}
+        return {"air": None, "source": "none", "age_hours": None,
+                "alert": f"{reason} and no recent forecast: no air quality reduction is applied."}
+    _last_forecast[key] = (t, air)
+    return {"air": air, "source": "live", "age_hours": 0.0, "alert": None}
 
 
 def aqi_category(aqi):
@@ -105,10 +137,24 @@ def decide_reduction(air, llm=ask_llm):
     return {"reduction": reduction, "source": "llm", "raw": raw}
 
 
-def full_decision(model, light, water, temp, air, llm=ask_llm):
-    """The complete system: router and network (REQ1, REQ3), then air quality (REQ2)."""
+def full_decision(model, light, water, temp, air, llm=ask_llm, ranges=None):
+    """The complete system: router and network (REQ1, REQ3), then air quality (REQ2).
+    air = None means there is no air quality forecast at all: no reduction is applied.
+    ranges (optional) = the range of the training data; inputs outside of it raise an alert (see range_alerts).
+    "alerts" lists the situations in which the dispatcher should look at the decision."""
     weather_limit, predictions, safe_limit_found = final_speed_limit(model, light, water, temp)
-    decision = decide_reduction(air, llm)
+    alerts = range_alerts(ranges, light, water, temp) if ranges else []
+    if air is None:
+        decision = {"reduction": 0, "source": "no air data", "raw": "no air quality forecast available"}
+        aqi = category = None
+        alerts.append("No air quality forecast (Open-Meteo is unavailable and no recent forecast is stored): no reduction is applied.")
+    else:
+        decision = decide_reduction(air, llm)
+        aqi, category = air["aqi"], aqi_category(air["aqi"])
+        if decision["source"] == "fallback rule":
+            alerts.append("The LLM was unavailable or gave an invalid answer: the fallback rule decided.")
+    if not safe_limit_found:
+        alerts.append("No limit met the target of 1 near-accident per hour: the 40 km/h fallback applies.")
     return {"limit": combine_limits(weather_limit, decision["reduction"]), "weather_limit": weather_limit,
             "predictions": predictions, "safe_limit_found": safe_limit_found,
-            "aqi": air["aqi"], "category": aqi_category(air["aqi"]), **decision}
+            "aqi": aqi, "category": category, "alerts": alerts, **decision}
